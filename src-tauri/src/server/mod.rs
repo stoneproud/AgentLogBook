@@ -174,6 +174,8 @@ pub fn build_router(state: Arc<AppState>, host: &str, port: u16, dist_dir: Optio
         .route("/load_provider_sessions", post(h::load_provider_sessions))
         .route("/load_provider_messages", post(h::load_provider_messages))
         .route("/search_all_providers", post(h::search_all_providers))
+        .route("/list_remote_sessions", post(h::list_remote_sessions))
+        .route("/get_remote_session_log", post(h::get_remote_session_log))
         // Archive commands
         .route("/get_archive_base_path", post(h::get_archive_base_path))
         .route("/list_archives", post(h::list_archives))

@@ -309,7 +309,8 @@ pub struct ProviderWhitelist {
     pub extension_filter: Option<&'static [&'static str]>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
 pub enum ProviderKind {
     Claude,
     Codex,

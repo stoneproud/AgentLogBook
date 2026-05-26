@@ -858,6 +858,22 @@ handler_json!(
     }
 );
 
+handler_json!(
+    list_remote_sessions,
+    commands::remote_session_query::RemoteSessionQuery,
+    |p: commands::remote_session_query::RemoteSessionQuery| async move {
+        commands::remote_session_query::list_remote_sessions(p).await
+    }
+);
+
+handler_json!(
+    get_remote_session_log,
+    commands::remote_session_query::RemoteSessionQuery,
+    |p: commands::remote_session_query::RemoteSessionQuery| async move {
+        commands::remote_session_query::get_remote_session_log(p).await
+    }
+);
+
 // ─── Handlers: STATE PARAMS (MetadataState) ───────────────────────────────────
 
 pub async fn load_user_metadata(

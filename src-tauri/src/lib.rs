@@ -513,6 +513,8 @@ fn run_tauri() {
             crate::commands::remote_sync::test_remote_connection,
             crate::commands::remote_sync::sync_remote_source,
             crate::commands::remote_sync::sync_all_remote_sources,
+            crate::commands::remote_session_query::list_remote_sessions,
+            crate::commands::remote_session_query::get_remote_session_log,
             // Antigravity token-monitor commands
             load_antigravity_state,
             get_antigravity_session,

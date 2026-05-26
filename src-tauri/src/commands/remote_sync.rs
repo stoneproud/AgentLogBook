@@ -40,7 +40,10 @@ fn redact_uri_userinfo(input: &str) -> String {
     output
 }
 
-fn public_error_for_source(error: anyhow::Error, source: Option<&RemoteSource>) -> String {
+pub(crate) fn public_error_for_source(
+    error: anyhow::Error,
+    source: Option<&RemoteSource>,
+) -> String {
     let message = format!("{error:#}");
     let mut redacted = message;
 
