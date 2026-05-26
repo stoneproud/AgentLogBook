@@ -2,9 +2,9 @@
 
 <img src="docs/assets/app-icon.png" alt="CCHV Logo" width="120" />
 
-# Claude Code History Viewer
+# Agent LogBook
 
-**The unified history viewer for AI coding assistants.**
+**A desktop logbook and local service layer for coding-agent conversations.**
 
 Browse, search, and analyze conversations from **Claude Code**, **Gemini CLI**, **Antigravity**, **Codex CLI**, **Cline**, **Cursor**, **Aider**, **OpenCode**, and **ForgeCode** — as a desktop app or headless server. 100% offline.
 
@@ -18,6 +18,8 @@ Browse, search, and analyze conversations from **Claude Code**, **Gemini CLI**, 
 [Website](https://jhlee0409.github.io/claude-code-history-viewer/) · [Download](https://github.com/jhlee0409/claude-code-history-viewer/releases) · [Report Bug](https://github.com/jhlee0409/claude-code-history-viewer/issues)
 
 **Languages**: [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [中文 (简体)](README.zh-CN.md) | [中文 (繁體)](README.zh-TW.md)
+
+Agent LogBook is an independent soft fork based on [jhlee0409/claude-code-history-viewer](https://github.com/jhlee0409/claude-code-history-viewer). The original project, license, and author attribution are preserved; this line is intended for larger experiments around local APIs and agent-facing history access.
 
 </div>
 
