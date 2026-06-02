@@ -256,7 +256,7 @@ fn detect_project_provider(project_path: &str) -> StatsProvider {
         StatsProvider::Codex
     } else if project_path.starts_with("forgecode://") {
         StatsProvider::ForgeCode
-    } else if project_path.starts_with("opencode://") {
+    } else if is_opencode_virtual_path(project_path) {
         StatsProvider::OpenCode
     } else if is_antigravity_path(project_path) {
         StatsProvider::Antigravity
@@ -267,7 +267,7 @@ fn detect_project_provider(project_path: &str) -> StatsProvider {
 
 /// Detect the provider encoded in a session path.
 fn detect_session_provider(session_path: &str) -> StatsProvider {
-    if session_path.starts_with("opencode://") {
+    if is_opencode_virtual_path(session_path) {
         return StatsProvider::OpenCode;
     }
 
@@ -294,6 +294,10 @@ fn detect_session_provider(session_path: &str) -> StatsProvider {
     } else {
         StatsProvider::Claude
     }
+}
+
+fn is_opencode_virtual_path(path: &str) -> bool {
+    path.starts_with("opencode://") || path.starts_with("opencode+path://")
 }
 
 fn is_antigravity_path(path: &str) -> bool {
@@ -1653,6 +1657,14 @@ fn resolve_provider_project_name_from_session(
         StatsProvider::OpenCode => {
             let project_part = session_path
                 .strip_prefix("opencode://")
+                .or_else(|| {
+                    session_path
+                        .strip_prefix("opencode+path://")
+                        .and_then(|rest| {
+                            rest.split_once('/')
+                                .map(|(_, project_and_session)| project_and_session)
+                        })
+                })
                 .and_then(|rest| rest.split('/').next())
                 .unwrap_or("unknown");
             let project_path = format!("opencode://{project_part}");
@@ -4145,6 +4157,10 @@ mod tests {
             StatsProvider::OpenCode
         );
         assert_eq!(
+            detect_project_provider("opencode+path://433a2f706f646d616e/project_123"),
+            StatsProvider::OpenCode
+        );
+        assert_eq!(
             detect_project_provider("/Users/jack/.claude/projects/my-project"),
             StatsProvider::Claude
         );
@@ -4175,6 +4191,10 @@ mod tests {
         );
         assert_eq!(
             detect_session_provider("opencode://project/ses_abc"),
+            StatsProvider::OpenCode
+        );
+        assert_eq!(
+            detect_session_provider("opencode+path://433a2f706f646d616e/project/ses_abc"),
             StatsProvider::OpenCode
         );
         assert_eq!(

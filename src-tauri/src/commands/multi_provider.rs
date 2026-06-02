@@ -4,6 +4,15 @@ use crate::utils::parse_rfc3339_utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp::Ordering;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct LocalPodmanSourceConfig {
+    distro: String,
+    volume_root: String,
+    allow_wsl_copy: bool,
+}
 
 /// Parameter for passing custom Claude paths from frontend
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,6 +141,186 @@ fn infer_local_podman_volume_provider(
     None
 }
 
+fn is_safe_local_podman_distro(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+}
+
+fn local_podman_sources_from_settings() -> Vec<LocalPodmanSourceConfig> {
+    let Ok(path) = crate::commands::metadata::get_user_data_path() else {
+        return Vec::new();
+    };
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    let Ok(metadata) = serde_json::from_str::<Value>(content.trim_start_matches('\u{feff}')) else {
+        return Vec::new();
+    };
+
+    let sources: Vec<_> = metadata
+        .get("settings")
+        .and_then(|settings| settings.get("localPodman"))
+        .and_then(|local_podman| local_podman.get("sources"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|source| {
+            let distro = source.get("distro").and_then(Value::as_str)?.trim();
+            let volume_root = source.get("volumeRoot").and_then(Value::as_str)?.trim();
+            if !is_safe_local_podman_distro(distro) || !volume_root.starts_with('/') {
+                return None;
+            }
+            Some(LocalPodmanSourceConfig {
+                distro: distro.to_string(),
+                volume_root: volume_root.trim_end_matches('/').to_string(),
+                allow_wsl_copy: true,
+            })
+        })
+        .collect();
+    sources
+}
+
+fn local_podman_sources() -> Vec<LocalPodmanSourceConfig> {
+    let mut seen = HashSet::new();
+    let mut sources = Vec::new();
+
+    for distro in crate::wsl::detect_distros()
+        .into_iter()
+        .filter(|distro| distro.name.starts_with("podman-machine"))
+    {
+        let item = LocalPodmanSourceConfig {
+            distro: distro.name,
+            volume_root: "/home/user/.local/share/containers/storage/volumes".to_string(),
+            allow_wsl_copy: false,
+        };
+        if seen.insert(item.clone()) {
+            sources.push(item);
+        }
+    }
+
+    for item in local_podman_sources_from_settings() {
+        if seen.insert(item.clone()) {
+            sources.push(item);
+        }
+    }
+
+    sources
+}
+
+fn safe_cache_component(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn is_safe_local_podman_volume_name(value: &str) -> bool {
+    is_safe_local_podman_distro(value)
+}
+
+fn is_safe_local_podman_volume_root(value: &str) -> bool {
+    value.starts_with('/')
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'))
+}
+
+#[cfg(target_os = "windows")]
+fn windows_path_to_wsl_path(path: &Path) -> Option<String> {
+    let path = path.canonicalize().ok()?;
+    let raw = path.to_string_lossy().replace('\\', "/");
+    let raw = raw.strip_prefix("//?/").unwrap_or(&raw);
+    let drive = raw.as_bytes().first().copied()? as char;
+    if raw.as_bytes().get(1).copied()? != b':' || !drive.is_ascii_alphabetic() {
+        return None;
+    }
+    Some(format!(
+        "/mnt/{}/{}",
+        drive.to_ascii_lowercase(),
+        raw[3..].trim_start_matches('/')
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+#[cfg(target_os = "windows")]
+fn run_wsl_root_sh(distro: &str, script: &str) -> Option<String> {
+    let output = std::process::Command::new("wsl")
+        .args(["-d", distro, "-u", "root", "--", "sh", "-c", script])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout).ok()
+}
+
+#[cfg(target_os = "windows")]
+fn copy_configured_podman_volume_to_cache(
+    distro: &str,
+    volume_root: &str,
+    volume_name: &str,
+) -> Option<PathBuf> {
+    if !is_safe_local_podman_distro(distro)
+        || !is_safe_local_podman_volume_root(volume_root)
+        || !is_safe_local_podman_volume_name(volume_name)
+    {
+        return None;
+    }
+
+    let cache_root = dirs::home_dir()?
+        .join(".claude-history-viewer")
+        .join("local-podman-cache-v2")
+        .join(safe_cache_component(distro))
+        .join(safe_cache_component(volume_name));
+    if cache_root.exists() && std::fs::remove_dir_all(&cache_root).is_err() {
+        return None;
+    }
+    std::fs::create_dir_all(&cache_root).ok()?;
+    let dest = windows_path_to_wsl_path(&cache_root)?;
+    let source = format!("{volume_root}/{volume_name}/_data");
+    let quoted_source = shell_quote(&source);
+    let quoted_dest = shell_quote(&dest);
+    let script = format!(
+        "set -e; mkdir -p {quoted_dest}; \
+         if ls {quoted_source}/opencode.db* >/dev/null 2>&1; then cp -a {quoted_source}/opencode.db* {quoted_dest}/; fi; \
+         if [ -d {quoted_source}/storage ]; then cp -a {quoted_source}/storage {quoted_dest}/; fi; \
+         if [ -d {quoted_source}/projects ]; then cp -a {quoted_source}/projects {quoted_dest}/; fi"
+    );
+    run_wsl_root_sh(distro, &script)?;
+    Some(cache_root)
+}
+
+#[cfg(target_os = "windows")]
+fn list_configured_podman_volume_names(distro: &str, volume_root: &str) -> Vec<String> {
+    if !is_safe_local_podman_distro(distro) || !is_safe_local_podman_volume_root(volume_root) {
+        return Vec::new();
+    }
+    let script = format!(
+        "find {} -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null",
+        shell_quote(volume_root)
+    );
+    run_wsl_root_sh(distro, &script)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|path| path.trim().rsplit('/').next().map(str::to_string))
+        .filter(|name| is_safe_local_podman_volume_name(name))
+        .collect()
+}
+
 pub(crate) async fn scan_local_podman_projects(providers_to_scan: &[String]) -> Vec<ClaudeProject> {
     let wants_claude = providers_to_scan.iter().any(|p| p == "claude");
     let wants_opencode = providers_to_scan.iter().any(|p| p == "opencode");
@@ -140,28 +329,65 @@ pub(crate) async fn scan_local_podman_projects(providers_to_scan: &[String]) -> 
     }
 
     let mut projects = Vec::new();
-    for distro in crate::wsl::detect_distros()
-        .into_iter()
-        .filter(|distro| distro.name.starts_with("podman-machine"))
-    {
-        let volume_root =
-            std::path::Path::new("/home/user/.local/share/containers/storage/volumes");
-        let Some(volume_root_unc) =
-            crate::wsl::resolve_wsl_provider_path(&distro.name, volume_root)
-        else {
-            continue;
-        };
+    for source_config in local_podman_sources() {
+        let distro_name = source_config.distro;
+        let volume_root = Path::new(&source_config.volume_root);
+        let volume_root_unc = crate::wsl::resolve_wsl_provider_path(&distro_name, volume_root);
+        let mut copied_volume_paths = Vec::new();
 
-        let Ok(entries) = std::fs::read_dir(&volume_root_unc) else {
-            continue;
-        };
-
-        for entry in entries.flatten() {
-            if entry.file_type().map_or(true, |ft| !ft.is_dir()) {
-                continue;
+        let mut copy_configured_volumes = || {
+            #[cfg(target_os = "windows")]
+            {
+                for volume_name in
+                    list_configured_podman_volume_names(&distro_name, &source_config.volume_root)
+                {
+                    if let Some(cache_path) = copy_configured_podman_volume_to_cache(
+                        &distro_name,
+                        &source_config.volume_root,
+                        &volume_name,
+                    ) {
+                        copied_volume_paths.push((volume_name, cache_path));
+                    }
+                }
             }
-            let volume_name = entry.file_name().to_string_lossy().to_string();
-            let data_path = entry.path().join("_data");
+        };
+
+        if volume_root_unc.is_none() && source_config.allow_wsl_copy {
+            copy_configured_volumes();
+        }
+
+        let volume_entries: Vec<(String, PathBuf)> = if let Some(volume_root_unc) = volume_root_unc
+        {
+            match std::fs::read_dir(&volume_root_unc) {
+                Ok(entries) => {
+                    let entries: Vec<_> = entries
+                        .flatten()
+                        .filter(|entry| entry.file_type().is_ok_and(|ft| ft.is_dir()))
+                        .map(|entry| {
+                            (
+                                entry.file_name().to_string_lossy().to_string(),
+                                entry.path().join("_data"),
+                            )
+                        })
+                        .collect();
+                    if entries.is_empty() && source_config.allow_wsl_copy {
+                        copy_configured_volumes();
+                        copied_volume_paths
+                    } else {
+                        entries
+                    }
+                }
+                Err(_) if source_config.allow_wsl_copy => {
+                    copy_configured_volumes();
+                    copied_volume_paths
+                }
+                Err(_) => continue,
+            }
+        } else {
+            copied_volume_paths
+        };
+
+        for (volume_name, data_path) in volume_entries {
             if !data_path.is_dir() {
                 continue;
             }
@@ -179,10 +405,10 @@ pub(crate) async fn scan_local_podman_projects(providers_to_scan: &[String]) -> 
             let data_path_str = data_path.to_string_lossy().to_string();
             let label = format!("Podman: {workload_name} @ local");
             let source = ProjectSource {
-                id: format!("local-podman:{}:{}", distro.name, volume_name),
+                id: format!("local-podman:{distro_name}:{volume_name}"),
                 kind: "podman-container".to_string(),
                 display_label: label.clone(),
-                debug_label: Some(format!("WSL distro {} local Podman volume", distro.name)),
+                debug_label: Some(format!("WSL distro {distro_name} local Podman volume")),
             };
 
             match provider {

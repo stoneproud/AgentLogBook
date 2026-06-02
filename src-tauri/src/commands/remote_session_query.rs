@@ -1,9 +1,8 @@
-//! SSH-key-only read-through queries for remote provider sessions.
+//! Read-through queries for local or SSH-key-only remote provider sessions.
 //!
 //! These commands are intentionally narrower than persisted remote sources:
-//! they accept only key authentication, do not save credentials, and read only
-//! the selected provider's default history locations via the existing sync
-//! cache and provider parsers.
+//! they do not save credentials and, when remote fields are present, accept only
+//! key authentication. Omitting SSH fields queries local provider history.
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -18,10 +17,13 @@ use crate::remote::source::{
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteSessionQuery {
+    #[serde(default)]
     pub host: String,
     #[serde(default = "default_ssh_port")]
     pub port: u16,
+    #[serde(default)]
     pub username: String,
+    #[serde(default)]
     pub key_path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub passphrase: Option<String>,
@@ -127,6 +129,24 @@ fn build_source(query: &RemoteSessionQuery) -> Result<RemoteSource, String> {
     })
 }
 
+fn uses_remote_ssh(query: &RemoteSessionQuery) -> Result<bool, String> {
+    let has_host = !query.host.trim().is_empty();
+    let has_username = !query.username.trim().is_empty();
+    let has_key_path = !query.key_path.trim().is_empty();
+
+    if has_host || has_username || has_key_path {
+        if has_host && has_username && has_key_path {
+            return Ok(true);
+        }
+        return Err(
+            "host, username, and keyPath must be provided together for remote SSH queries"
+                .to_string(),
+        );
+    }
+
+    Ok(false)
+}
+
 fn discovered_session_matches(session: &DiscoveredSession, needle: &str) -> bool {
     session.summary.session_id == needle
         || session.summary.actual_session_id == needle
@@ -202,7 +222,65 @@ fn scan_provider_root(
     Ok(out)
 }
 
+async fn scan_local_claude() -> Result<Vec<DiscoveredSession>, String> {
+    let base = providers::claude::get_base_path().ok_or_else(|| "Claude not found".to_string())?;
+    let projects = crate::commands::project::scan_projects(base).await?;
+    let mut out = Vec::new();
+    for project in projects {
+        let sessions =
+            crate::commands::session::load_project_sessions(project.path.clone(), Some(false))
+                .await?;
+        for session in sessions {
+            out.push(DiscoveredSession {
+                summary: to_summary(ProviderKind::Claude, "local", &session),
+                file_path: session.file_path,
+            });
+        }
+    }
+    Ok(out)
+}
+
+fn scan_local_provider(provider: ProviderKind) -> Result<Vec<DiscoveredSession>, String> {
+    let projects: Vec<ClaudeProject> = match provider {
+        ProviderKind::Codex => providers::codex::scan_projects()?,
+        ProviderKind::OpenCode => providers::opencode::scan_projects()?,
+        ProviderKind::Claude => return Ok(Vec::new()),
+    };
+
+    let mut out = Vec::new();
+    for project in projects {
+        let sessions = match provider {
+            ProviderKind::Codex => providers::codex::load_sessions(&project.path, false),
+            ProviderKind::OpenCode => providers::opencode::load_sessions(&project.path, false),
+            ProviderKind::Claude => Ok(Vec::new()),
+        }?;
+        for session in sessions {
+            out.push(DiscoveredSession {
+                summary: to_summary(provider, "local", &session),
+                file_path: session.file_path,
+            });
+        }
+    }
+    Ok(out)
+}
+
+async fn collect_local_sessions(
+    query: &RemoteSessionQuery,
+) -> Result<Vec<DiscoveredSession>, String> {
+    let mut sessions = match query.provider {
+        ProviderKind::Claude => scan_local_claude().await?,
+        ProviderKind::Codex => scan_local_provider(ProviderKind::Codex)?,
+        ProviderKind::OpenCode => scan_local_provider(ProviderKind::OpenCode)?,
+    };
+    sessions.sort_by(|a, b| b.summary.last_modified.cmp(&a.summary.last_modified));
+    Ok(sessions)
+}
+
 async fn collect_sessions(query: &RemoteSessionQuery) -> Result<Vec<DiscoveredSession>, String> {
+    if !uses_remote_ssh(query)? {
+        return collect_local_sessions(query).await;
+    }
+
     let source = build_source(query)?;
     let outcome = crate::remote::sync_one(&source).await.map_err(|error| {
         crate::commands::remote_sync::public_error_for_source(error, Some(&source))
@@ -242,7 +320,11 @@ pub async fn list_remote_sessions(
         .collect::<Vec<_>>();
 
     Ok(RemoteSessionListResult {
-        host: query.host,
+        host: if query.host.trim().is_empty() {
+            "local".to_string()
+        } else {
+            query.host
+        },
         provider: query.provider.as_str().to_string(),
         sessions,
     })
@@ -279,7 +361,11 @@ pub async fn get_remote_session_log(
     }
 
     Ok(RemoteSessionLogResult {
-        host: query.host,
+        host: if query.host.trim().is_empty() {
+            "local".to_string()
+        } else {
+            query.host
+        },
         provider: query.provider.as_str().to_string(),
         session: session.summary,
         messages,
@@ -322,5 +408,23 @@ mod tests {
             paths.opencode,
             Some(vec!["~/.local/share/opencode".to_string()])
         );
+    }
+
+    #[test]
+    fn empty_connection_fields_select_local_mode() {
+        let mut query = query(ProviderKind::OpenCode);
+        query.host.clear();
+        query.username.clear();
+        query.key_path.clear();
+
+        assert!(!uses_remote_ssh(&query).expect("mode"));
+    }
+
+    #[test]
+    fn partial_connection_fields_are_rejected() {
+        let mut query = query(ProviderKind::OpenCode);
+        query.username.clear();
+
+        assert!(uses_remote_ssh(&query).is_err());
     }
 }

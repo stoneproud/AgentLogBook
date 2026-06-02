@@ -76,6 +76,17 @@ export interface WslSettings {
   excludedDistros: string[];
 }
 
+/** Explicit local Podman history sources */
+export interface LocalPodmanSettings {
+  sources: LocalPodmanSource[];
+}
+
+/** WSL distro and Podman volume root pair */
+export interface LocalPodmanSource {
+  distro: string;
+  volumeRoot: string;
+}
+
 /** Global user settings */
 export interface UserSettings {
   /** Glob patterns for projects to hide (e.g., "folders-dg-*") */
@@ -90,6 +101,8 @@ export interface UserSettings {
   customClaudePaths?: CustomClaudePath[];
   /** WSL integration settings (Windows only) */
   wsl?: WslSettings;
+  /** Local Podman history discovery settings */
+  localPodman?: LocalPodmanSettings;
   /** Remote SSH machines to pull session history from */
   remoteSources?: RemoteSource[];
 }

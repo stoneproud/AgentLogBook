@@ -220,6 +220,25 @@ pub struct WslSettings {
     pub excluded_distros: Vec<String>,
 }
 
+/// Local Podman history discovery settings.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalPodmanSettings {
+    /// Explicit Podman storage roots to scan.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<LocalPodmanSource>,
+}
+
+/// A WSL distro and Podman volume root pair.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalPodmanSource {
+    /// WSL distro name, e.g. "podman-machine-default".
+    pub distro: String,
+    /// Linux path to the Podman volumes directory.
+    pub volume_root: String,
+}
+
 /// Global user settings
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -247,6 +266,10 @@ pub struct UserSettings {
     /// WSL integration settings (Windows only)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wsl: Option<WslSettings>,
+
+    /// Local Podman history discovery settings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_podman: Option<LocalPodmanSettings>,
 
     /// Remote SSH machines to pull session history from
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

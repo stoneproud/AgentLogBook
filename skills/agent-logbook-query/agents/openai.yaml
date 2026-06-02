@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent LogBook Query"
+  short_description: "Query remote coding-agent session logs through Agent LogBook."
+  default_prompt: "Use Agent LogBook to list remote sessions or fetch one session log over the HTTP API."

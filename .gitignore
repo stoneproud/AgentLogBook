@@ -20,6 +20,9 @@ dist-ssr
 
 # Tauri
 src-tauri/target/
+src-tauri/target-server/
+src-tauri/target-test/
+src-tauri/target-check/
 src-tauri/Cargo.lock
 src-tauri/gen/
 src-tauri/.env
