@@ -211,6 +211,7 @@ fn local_podman_sources() -> Vec<LocalPodmanSourceConfig> {
     sources
 }
 
+#[cfg(target_os = "windows")]
 fn safe_cache_component(value: &str) -> String {
     value
         .chars()
@@ -224,10 +225,12 @@ fn safe_cache_component(value: &str) -> String {
         .collect()
 }
 
+#[cfg(target_os = "windows")]
 fn is_safe_local_podman_volume_name(value: &str) -> bool {
     is_safe_local_podman_distro(value)
 }
 
+#[cfg(target_os = "windows")]
 fn is_safe_local_podman_volume_root(value: &str) -> bool {
     value.starts_with('/')
         && value
