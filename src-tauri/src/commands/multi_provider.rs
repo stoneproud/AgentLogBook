@@ -211,6 +211,7 @@ fn local_podman_sources() -> Vec<LocalPodmanSourceConfig> {
     sources
 }
 
+#[cfg(target_os = "windows")]
 fn safe_cache_component(value: &str) -> String {
     value
         .chars()
@@ -224,10 +225,12 @@ fn safe_cache_component(value: &str) -> String {
         .collect()
 }
 
+#[cfg(target_os = "windows")]
 fn is_safe_local_podman_volume_name(value: &str) -> bool {
     is_safe_local_podman_distro(value)
 }
 
+#[cfg(target_os = "windows")]
 fn is_safe_local_podman_volume_root(value: &str) -> bool {
     value.starts_with('/')
         && value
@@ -321,6 +324,20 @@ fn list_configured_podman_volume_names(distro: &str, volume_root: &str) -> Vec<S
         .collect()
 }
 
+#[cfg(not(target_os = "windows"))]
+fn copy_configured_podman_volume_to_cache(
+    _distro: &str,
+    _volume_root: &str,
+    _volume_name: &str,
+) -> Option<PathBuf> {
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+fn list_configured_podman_volume_names(_distro: &str, _volume_root: &str) -> Vec<String> {
+    Vec::new()
+}
+
 pub(crate) async fn scan_local_podman_projects(providers_to_scan: &[String]) -> Vec<ClaudeProject> {
     let wants_claude = providers_to_scan.iter().any(|p| p == "claude");
     let wants_opencode = providers_to_scan.iter().any(|p| p == "opencode");
@@ -336,18 +353,15 @@ pub(crate) async fn scan_local_podman_projects(providers_to_scan: &[String]) -> 
         let mut copied_volume_paths = Vec::new();
 
         let mut copy_configured_volumes = || {
-            #[cfg(target_os = "windows")]
+            for volume_name in
+                list_configured_podman_volume_names(&distro_name, &source_config.volume_root)
             {
-                for volume_name in
-                    list_configured_podman_volume_names(&distro_name, &source_config.volume_root)
-                {
-                    if let Some(cache_path) = copy_configured_podman_volume_to_cache(
-                        &distro_name,
-                        &source_config.volume_root,
-                        &volume_name,
-                    ) {
-                        copied_volume_paths.push((volume_name, cache_path));
-                    }
+                if let Some(cache_path) = copy_configured_podman_volume_to_cache(
+                    &distro_name,
+                    &source_config.volume_root,
+                    &volume_name,
+                ) {
+                    copied_volume_paths.push((volume_name, cache_path));
                 }
             }
         };
