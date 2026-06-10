@@ -84,5 +84,6 @@ debug.log*
 # Local user-defined slash commands and runtime locks
 .claude/commands/
 .claude/scheduled_tasks.lock
+.claude/settings.local.json
 
 PLAN.md
