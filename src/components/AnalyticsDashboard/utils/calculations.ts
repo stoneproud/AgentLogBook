@@ -33,6 +33,7 @@ interface ModelPricing {
 
 const MODEL_PRICING: Record<string, ModelPricing> = {
   // Claude models
+  'claude-fable-5': { input: 10, output: 50, cacheWrite: 12.50, cacheRead: 1.00 },
   'claude-opus-4-7': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
   'claude-opus-4-6': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
   'claude-opus-4-5': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
