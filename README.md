@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/app-icon.png" alt="CCHV Logo" width="120" />
+<img src="docs/assets/app-icon.png" alt="Agent LogBook Logo" width="120" />
 
 # Agent LogBook
 
@@ -8,18 +8,13 @@
 
 Browse, search, and analyze conversations from **Claude Code**, **Gemini CLI**, **Antigravity**, **Codex CLI**, **Cline**, **Cursor**, **Aider**, **OpenCode**, and **ForgeCode** — as a desktop app or headless server. 100% offline.
 
-[![Version](https://img.shields.io/github/v/release/jhlee0409/claude-code-history-viewer?label=Version&color=blue)](https://github.com/jhlee0409/claude-code-history-viewer/releases)
-[![Stars](https://img.shields.io/github/stars/jhlee0409/claude-code-history-viewer?style=flat&color=yellow)](https://github.com/jhlee0409/claude-code-history-viewer/stargazers)
-[![License](https://img.shields.io/github/license/jhlee0409/claude-code-history-viewer)](LICENSE)
-[![Rust Tests](https://img.shields.io/github/actions/workflow/status/jhlee0409/claude-code-history-viewer/rust-tests.yml?label=Rust%20Tests)](https://github.com/jhlee0409/claude-code-history-viewer/actions/workflows/rust-tests.yml)
-[![Last Commit](https://img.shields.io/github/last-commit/jhlee0409/claude-code-history-viewer)](https://github.com/jhlee0409/claude-code-history-viewer/commits/main)
+[![License](https://img.shields.io/github/license/stoneproud/AgentLogBook)](LICENSE)
+[![Rust Tests](https://img.shields.io/github/actions/workflow/status/stoneproud/AgentLogBook/rust-tests.yml?label=Rust%20Tests)](https://github.com/stoneproud/AgentLogBook/actions/workflows/rust-tests.yml)
 ![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)
 
-[Website](https://jhlee0409.github.io/claude-code-history-viewer/) · [Download](https://github.com/jhlee0409/claude-code-history-viewer/releases) · [Report Bug](https://github.com/jhlee0409/claude-code-history-viewer/issues)
+[Report Bug](https://github.com/stoneproud/AgentLogBook/issues)
 
-**Languages**: [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [中文 (简体)](README.zh-CN.md) | [中文 (繁體)](README.zh-TW.md)
-
-Agent LogBook is an independent soft fork based on [jhlee0409/claude-code-history-viewer](https://github.com/jhlee0409/claude-code-history-viewer). The original project, license, and author attribution are preserved; this line is intended for larger experiments around local APIs and agent-facing history access.
+Agent LogBook is an independent soft fork based on [jhlee0409/claude-code-history-viewer](https://github.com/jhlee0409/claude-code-history-viewer). The original project, license, and author attribution are preserved; this fork hosts larger experiments around local APIs, remote session sync, and agent-facing history access.
 
 </div>
 
@@ -36,36 +31,54 @@ Agent LogBook is an independent soft fork based on [jhlee0409/claude-code-histor
 
 ## Quick Start
 
-**Desktop app** — download and run:
-
-| Platform | Download |
-|----------|----------|
-| macOS (Universal) | [`.dmg`](https://github.com/jhlee0409/claude-code-history-viewer/releases/latest) |
-| Windows (x64) | [`.exe`](https://github.com/jhlee0409/claude-code-history-viewer/releases/latest) / [`.zip` (portable)](https://github.com/jhlee0409/claude-code-history-viewer/releases/latest) |
-| Linux (x64) | [`.AppImage`](https://github.com/jhlee0409/claude-code-history-viewer/releases/latest) |
-
-**Homebrew** (macOS):
+This fork does not publish prebuilt binaries — build from source:
 
 ```bash
-brew install --cask jhlee0409/tap/claude-code-history-viewer
+git clone https://github.com/stoneproud/AgentLogBook.git
+cd AgentLogBook
+
+# Option 1: Using just (recommended)
+brew install just    # or: cargo install just
+just setup
+just dev             # Development
+just tauri-build     # Production build
+
+# Option 2: Using pnpm directly
+pnpm install
+pnpm tauri:dev       # Development
+pnpm tauri:build     # Production build
 ```
+
+**Requirements**: Node.js 18+, pnpm, Rust toolchain
 
 **Headless server** — access from any browser:
 
 ```bash
-brew install jhlee0409/tap/cchv-server   # or: curl -fsSL https://...install-server.sh | sh
-cchv-server --serve                       # → http://localhost:3727
+just serve-build-run   # Build frontend, embed into server binary, and run
+# → http://localhost:3727
 ```
 
-See [Server Mode](#server-mode-webui) for Docker, VPS, and systemd setup.
+See [Server Mode](#server-mode-webui) for Docker, systemd, and CLI options.
 
----
+## What This Fork Adds
+
+On top of the upstream viewer, Agent LogBook adds a service layer for getting agent history **into and out of** the machine you're sitting at:
+
+| Feature | Description |
+|---------|-------------|
+| **SSH Remote Session Sync** | Pull Claude Code / Codex CLI / OpenCode session history from SSH-accessible Linux and Windows machines into a local cache (pure-Rust SFTP, key + password auth, incremental mtime+size sync). Synced data flows through the normal scanner — projects, search, and stats all work unchanged. |
+| **Credential Storage in OS Keychain** | Remote credentials are stored in the operating system keychain, not plaintext config. |
+| **Podman Container Discovery** | Discover and scan agent histories that live inside local or remote Podman containers, with configurable discovery. |
+| **Agent-Facing Log Query API** | HTTP API (`/api/list_remote_sessions`, `/api/get_remote_session_log`, …) so other agents and scripts can query session history programmatically. See [docs/agent-api-cli.md](docs/agent-api-cli.md) and the bundled [`agent-logbook-query` skill](skills/agent-logbook-query/SKILL.md). |
+| **History Backup & Restore** | Export and restore full history backups. |
+
+> **Note**: This fork has auto-update disabled — updates come from rebuilding the source. The upstream auto-updater (which would replace your build with upstream binaries) is intentionally turned off.
 
 ## Why This Exists
 
-AI coding assistants generate thousands of conversation messages, but none of them provide a way to look back at your history across tools. CCHV solves this.
+AI coding assistants generate thousands of conversation messages, but none of them provide a way to look back at your history across tools — let alone across machines.
 
-**Nine assistants. One viewer.** Switch between Claude Code, Gemini CLI, Antigravity, Codex CLI, Cline, Cursor, Aider, OpenCode, and ForgeCode sessions seamlessly — compare token usage, search across providers, and analyze your workflow in a single interface.
+**Nine assistants. One logbook.** Switch between Claude Code, Gemini CLI, Antigravity, Codex CLI, Cline, Cursor, Aider, OpenCode, and ForgeCode sessions seamlessly — compare token usage, search across providers, and analyze your workflow in a single interface.
 
 | Provider | Data Location | What You Get |
 |----------|--------------|--------------|
@@ -81,20 +94,17 @@ AI coding assistants generate thousands of conversation messages, but none of th
 
 No vendor lock-in. No cloud dependency. Your local conversation files, beautifully rendered.
 
-Antigravity note: the viewer resolves the Antigravity root as `~/.gemini/antigravity` and then reads session state from `brain/` plus usage/cache artifacts from `.token-monitor/rpc-cache/v1/`; this matches the current runtime layout and root resolver in `src-tauri/src/commands/antigravity.rs`.
-
 ## Table of Contents
 
+- [What This Fork Adds](#what-this-fork-adds)
 - [Features](#features)
-- [Installation](#installation)
-- [Build from Source](#build-from-source)
+- [Build from Source](#quick-start)
 - [Server Mode (WebUI)](#server-mode-webui)
 - [Usage](#usage)
 - [Accessibility](#accessibility)
 - [Tech Stack](#tech-stack)
 - [Data Privacy](#data-privacy)
 - [Troubleshooting](#troubleshooting)
-- [Contributing](#contributing)
 - [License](#license)
 
 ## Features
@@ -111,146 +121,30 @@ Antigravity note: the viewer resolves the Antigravity root as `~/.gemini/antigra
 | **Settings Manager** | Scope-aware Claude Code settings editor with MCP server management |
 | **Message Navigator** | Right-side collapsible TOC for quick conversation navigation |
 | **Real-time Monitoring** | Live session file watching for instant updates |
-
-### Provider Notes
-
-| Provider | Notes |
-|---------|-------|
-| **Antigravity** | Loaded through the standard provider pipeline. Sessions come from the token monitor cache and participate in project/session views, token stats, analytics, and global search without a separate UI mode. |
-
-### New in v1.12.0
-
-| Feature | Description |
-|---------|-------------|
-| **Two New Providers** | Added **Antigravity** and **ForgeCode** — now supports 9 AI coding assistants |
-| **External Session Launch** | New `--session <uuid>` CLI flag with single-instance enforcement and macOS Apple Events for re-invocation |
-| **Sub-agent Filter** | Toggle sub-agent messages on/off from the header dropdown |
-| **Context Menu Polish** | Right-click menus rendered in portal for cursor-precise anchoring; clamp to panel bounds; close on scroll |
-| **Custom Directory** | Custom Claude directory selection now applies instantly without restart |
-
-### v1.10.0
-
-| Feature | Description |
-|---------|-------------|
-| **Monthly Calendar Heatmap** | Activity heatmap split into monthly calendar blocks for clearer day-by-day visualization |
-| **Session Management** | Delete sessions (move to trash) and reveal JSONL files in system file explorer |
-| **Copy Path** | Copy project path from the project context menu |
-| **Global Stats Date Filter** | Filter analytics dashboard by date range |
-| **Windows Portable** | Portable `.zip` build — no installer required |
-| **Per-tool Cards** | Dedicated rendering cards for Bash, Read, Edit, Glob, Grep, Write, WebFetch, WebSearch, and Agent tools |
-
-### v1.9.0
-
-| Feature | Description |
-|---------|-------------|
-| **4 New Providers** | Added **Gemini CLI**, **Cline**, **Cursor**, and **Aider** — now supports 7 AI coding assistants |
-| **WSL Support** | Windows Subsystem for Linux integration — scan Claude Code projects inside WSL distros |
-| **Enhanced Global Search** | Project filter, LRU cache, aho-corasick multi-pattern optimization, and message navigation |
-| **Zoom Controls** | Keyboard shortcuts for zoom in/out |
-
-### v1.6.0
-
-| Feature | Description |
-|---------|-------------|
 | **WebUI Server Mode** | Run as a headless web server with `--serve` — access from any browser, deploy on VPS/Docker |
+| **WSL Support** | Windows Subsystem for Linux integration — scan Claude Code projects inside WSL distros |
+| **External Session Launch** | `--session <uuid>` CLI flag with single-instance enforcement |
+| **Session Management** | Delete sessions (move to trash), reveal JSONL files, native rename, copy resume command |
 | **Screenshot Capture** | Long screenshot with range selection, preview modal, and multi-selection export |
 | **Archive Management** | Create, browse, rename, and export session archives with per-file download |
-| **Accessibility** | Full keyboard navigation, screen reader support, font scaling, and high contrast mode |
-| **Mobile UI** | Responsive 390px viewport support with bottom tab bar |
-| **External Links** | All links open in system browser instead of the app's WebView |
-
-### More
-
-| Feature | Description |
-|---------|-------------|
-| **Session Context Menu** | Copy session ID, resume command, file path; delete session, show JSONL file; native rename with search integration |
 | **ANSI Color Rendering** | Terminal output displayed with original ANSI colors |
 | **Multi-language** | English, Korean, Japanese, Chinese (Simplified & Traditional) |
 | **Recent Edits** | View file modification history and restore |
-| **Auto-update** | Built-in updater with skip/postpone options |
-
-## Installation
-
-### Homebrew (macOS)
-
-```bash
-brew tap jhlee0409/tap
-brew install --cask claude-code-history-viewer
-```
-
-Or install directly with the full cask path:
-
-```bash
-brew install --cask jhlee0409/tap/claude-code-history-viewer
-```
-
-If you see `No Cask with this name exists`, run the full cask path command above.
-
-To upgrade:
-
-```bash
-brew upgrade --cask claude-code-history-viewer
-```
-
-To uninstall:
-
-```bash
-brew uninstall --cask claude-code-history-viewer
-```
-
-> **Migrating from manual (.dmg) installation?**
-> Remove the existing app before installing via Homebrew to avoid conflicts.
-> Choose **one** installation method — do not mix manual and Homebrew installs.
-> ```bash
-> # Remove the manually installed app first
-> rm -rf "/Applications/Claude Code History Viewer.app"
-> # Then install via Homebrew
-> brew tap jhlee0409/tap
-> brew install --cask claude-code-history-viewer
-> ```
-
-## Build from Source
-
-```bash
-git clone https://github.com/jhlee0409/claude-code-history-viewer.git
-cd claude-code-history-viewer
-
-# Option 1: Using just (recommended)
-brew install just    # or: cargo install just
-just setup
-just dev             # Development
-just tauri-build     # Production build
-
-# Option 2: Using pnpm directly
-pnpm install
-pnpm tauri:dev       # Development
-pnpm tauri:build     # Production build
-```
-
-**Requirements**: Node.js 18+, pnpm, Rust toolchain
 
 ## Server Mode (WebUI)
 
 Run the viewer as a headless HTTP server — no desktop environment required. Ideal for VPS, remote servers, or Docker. The server binary embeds the frontend — **a single file is all you need**.
 
-> **New to server deployment?** See the full [Server Mode Guide](docs/server-guide.md) ([한국어](docs/server-guide.ko.md)) for step-by-step instructions covering local testing, VPS setup, Docker, and more.
+> See the full [Server Mode Guide](docs/server-guide.md) for step-by-step instructions covering local testing, VPS setup, Docker, and more.
 
-### Quick Install
-
-```bash
-# Homebrew (macOS / Linux)
-brew install jhlee0409/tap/cchv-server
-
-# Or one-line script
-curl -fsSL https://raw.githubusercontent.com/jhlee0409/claude-code-history-viewer/main/install-server.sh | sh
-```
-
-Both methods install `cchv-server` to your PATH.
-
-### Start the Server
+### Build and Start
 
 ```bash
-cchv-server --serve
+just serve-build           # Build frontend + embed into server binary
+just serve-build-run       # Build and run (embedded assets)
+
+# Or run in development (external dist/):
+just serve-dev             # Build frontend + run server with --dist
 ```
 
 Output:
@@ -263,17 +157,6 @@ Output:
 ```
 
 Open the URL in your browser — the token is saved automatically.
-
-### Pre-built Binaries
-
-| Platform | Asset |
-|----------|-------|
-| Linux x64 | `cchv-server-linux-x64.tar.gz` |
-| Linux ARM64 | `cchv-server-linux-arm64.tar.gz` |
-| macOS ARM | `cchv-server-macos-arm64.tar.gz` |
-| macOS x64 | `cchv-server-macos-x64.tar.gz` |
-
-Download from [Releases](https://github.com/jhlee0409/claude-code-history-viewer/releases).
 
 **CLI options:**
 
@@ -295,6 +178,17 @@ All `/api/*` endpoints are protected by Bearer token authentication. The token i
 - **Custom token**: `--token my-secret-token` to set your own.
 - **Environment variable**: `CCHV_TOKEN=your-token cchv-server --serve` (useful for systemd/Docker).
 - **Disable**: `--no-auth` to skip authentication entirely (only use on trusted networks).
+
+### Agent-Facing Query API
+
+Other agents and scripts can query session history over the same server. List sessions for a provider (local or remote over SSH), then fetch a full session log:
+
+```
+POST /api/list_remote_sessions    { "provider": "claude" }
+POST /api/get_remote_session_log  { "provider": "claude", "sessionId": "..." }
+```
+
+See [docs/agent-api-cli.md](docs/agent-api-cli.md) for a copy-paste smoke test and [`skills/agent-logbook-query`](skills/agent-logbook-query/SKILL.md) for the agent skill that wraps it.
 
 ### Real-time Updates
 
@@ -325,16 +219,6 @@ sudo systemctl edit --full cchv.service   # Set User= to your username
 sudo systemctl enable --now cchv.service
 ```
 
-### Build from Source (Server Only)
-
-```bash
-just serve-build           # Build frontend + embed into server binary
-just serve-build-run       # Build and run (embedded assets)
-
-# Or run in development (external dist/):
-just serve-dev             # Build frontend + run server with --dist
-```
-
 ### Health Check
 
 ```
@@ -345,10 +229,11 @@ GET /health
 ## Usage
 
 1. Launch the app
-2. It automatically scans for conversation data from all supported providers (Claude Code, Gemini CLI, Codex CLI, Cline, Cursor, Aider, OpenCode, ForgeCode)
+2. It automatically scans for conversation data from all supported providers
 3. Browse projects in the left sidebar — filter by provider using the tab bar
 4. Click a session to view messages
 5. Use tabs to switch between Messages, Analytics, Token Stats, Recent Edits, and Session Board
+6. To pull history from another machine, add an SSH remote source in settings — synced sessions appear alongside local ones
 
 ### Command-line flags
 
@@ -397,7 +282,7 @@ The app includes accessibility features for keyboard-only, low-vision, and scree
 
 **100% offline.** No conversation data is sent to any server. No analytics, no tracking, no telemetry.
 
-Your data stays on your machine.
+Remote session sync is point-to-point over SSH between your own machines; credentials live in the OS keychain. Your data stays on your machines.
 
 ## Troubleshooting
 
@@ -405,23 +290,18 @@ Your data stays on your machine.
 |---------|----------|
 | "No Claude data found" | Make sure `~/.claude` exists with conversation history |
 | Performance issues | Large histories may be slow initially — the app uses virtual scrolling |
-| Update problems | If auto-updater fails, download manually from [Releases](https://github.com/jhlee0409/claude-code-history-viewer/releases) |
+| Remote sync fails | Verify SSH connectivity (`ssh user@host`) and that the remote data directories exist |
 
-## Contributing
+## Development
 
-Contributions are welcome! Here's how to get started:
+Run checks before committing:
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feat/my-feature`)
-3. Run checks before committing:
-   ```bash
-   pnpm tsc --build .        # TypeScript
-   pnpm vitest run            # Tests
-   pnpm lint                  # Lint
-   ```
-4. Commit your changes (`git commit -m 'feat: add my feature'`)
-5. Push to the branch (`git push origin feat/my-feature`)
-6. Open a Pull Request
+```bash
+pnpm tsc --build .         # TypeScript
+pnpm vitest run            # Tests
+pnpm lint                  # Lint
+cd src-tauri && cargo test -- --test-threads=1   # Rust tests
+```
 
 See [Development Commands](CLAUDE.md#development-commands) for the full list of available commands.
 
@@ -429,12 +309,4 @@ See [Development Commands](CLAUDE.md#development-commands) for the full list of 
 
 [MIT](LICENSE) — free for personal and commercial use.
 
----
-
-<div align="center">
-
-If this project helps you, consider giving it a star!
-
-[![Star History Chart](https://api.star-history.com/svg?repos=jhlee0409/claude-code-history-viewer&type=Date)](https://star-history.com/#jhlee0409/claude-code-history-viewer&Date)
-
-</div>
+Based on [Claude Code History Viewer](https://github.com/jhlee0409/claude-code-history-viewer) by JaeHyeok Lee. See [NOTICE.md](NOTICE.md) for attribution.
