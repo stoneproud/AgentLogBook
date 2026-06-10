@@ -114,7 +114,7 @@ jobs:
           script: |
             const releaseIdRaw = '${{ inputs.release_id }}';
             const releaseId = Number.parseInt(releaseIdRaw, 10);
-            const tapOwner = 'jhlee0409';
+            const tapOwner = context.repo.owner;
             const tapRepo = 'homebrew-tap';
             const caskPath = 'Casks/claude-code-history-viewer.rb';
 

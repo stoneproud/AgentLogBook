@@ -136,7 +136,7 @@ jobs:
 
       - name: Download release assets and compute SHA256
         run: |
-          BASE="https://github.com/jhlee0409/claude-code-history-viewer/releases/download/${GITHUB_REF_NAME}"
+          BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
           : > CHECKSUMS.sha256
           for asset in cchv-server-macos-arm64 cchv-server-macos-x64 cchv-server-linux-arm64 cchv-server-linux-x64; do
             curl -fsSL -o "${asset}.tar.gz" "${BASE}/${asset}.tar.gz"
@@ -158,10 +158,10 @@ jobs:
         run: |
 
           # Fetch current formula
-          gh api repos/jhlee0409/homebrew-tap/contents/Formula/cchv-server.rb \
+          gh api "repos/${GITHUB_REPOSITORY_OWNER}/homebrew-tap/contents/Formula/cchv-server.rb" \
             --jq '.content' | base64 -d > cchv-server.rb
 
-          FILE_SHA=$(gh api repos/jhlee0409/homebrew-tap/contents/Formula/cchv-server.rb --jq '.sha')
+          FILE_SHA=$(gh api "repos/${GITHUB_REPOSITORY_OWNER}/homebrew-tap/contents/Formula/cchv-server.rb" --jq '.sha')
 
           # Replace version and SHA256 placeholders/values
           sed -i "s/version \".*\"/version \"${VERSION}\"/" cchv-server.rb
@@ -193,7 +193,7 @@ jobs:
           "
 
           # Push updated formula
-          gh api repos/jhlee0409/homebrew-tap/contents/Formula/cchv-server.rb \
+          gh api "repos/${GITHUB_REPOSITORY_OWNER}/homebrew-tap/contents/Formula/cchv-server.rb" \
             -X PUT \
             -f message="chore: update cchv-server to v${VERSION}" \
             -f content="$(base64 -w0 < cchv-server.rb)" \

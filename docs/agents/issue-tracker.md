@@ -1,6 +1,6 @@
 # Issue tracker: GitHub
 
-Repo: **`jhlee0409/claude-code-history-viewer`**.
+Repo: **`stoneproud/AgentLogBook`**.
 Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
 
 ## Conventions

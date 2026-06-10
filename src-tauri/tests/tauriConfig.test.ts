@@ -236,9 +236,9 @@ describe('Tauri Configuration Tests', () => {
     });
 
     describe('Updater Plugin', () => {
-      it('should have updater plugin enabled', () => {
+      it('should have updater plugin disabled (fork has no signed releases)', () => {
         expect(config.plugins.updater).toBeDefined();
-        expect(config.plugins.updater.active).toBe(true);
+        expect(config.plugins.updater.active).toBe(false);
         expect(typeof config.plugins.updater.active).toBe('boolean');
       });
 
@@ -249,7 +249,7 @@ describe('Tauri Configuration Tests', () => {
         config.plugins.updater.endpoints.forEach((endpoint: string) => {
           expect(endpoint).toMatch(/^https:\/\//); // HTTPS required
           expect(endpoint).toContain('github.com');
-          expect(endpoint).toContain('jhlee0409/claude-code-history-viewer');
+          expect(endpoint).toContain('stoneproud/AgentLogBook');
           expect(endpoint).toContain('latest.json');
         });
       });
@@ -279,7 +279,7 @@ describe('Tauri Configuration Tests', () => {
     it('should have bundle configuration enabled', () => {
       expect(config.bundle.active).toBe(true);
       expect(config.bundle.targets).toBe('all');
-      expect(config.bundle.createUpdaterArtifacts).toBe(true);
+      expect(config.bundle.createUpdaterArtifacts).toBe(false);
     });
 
     it('should have valid icon file paths', () => {

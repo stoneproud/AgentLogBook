@@ -396,7 +396,7 @@ jobs:
         with:
           script: |
             const releaseId = ${{ needs.create-release.outputs.release_id }};
-            const tapOwner = 'jhlee0409';
+            const tapOwner = context.repo.owner;
             const tapRepo = 'homebrew-tap';
             const caskPath = 'Casks/claude-code-history-viewer.rb';
 

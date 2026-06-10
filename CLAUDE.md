@@ -76,7 +76,7 @@ mattpocock 스킬(`/triage`, `/to-issues`, `/diagnose`, `/improve-codebase-archi
 
 ### Issue tracker
 
-GitHub Issues at `jhlee0409/claude-code-history-viewer`. See `docs/agents/issue-tracker.md`.
+GitHub Issues at `stoneproud/AgentLogBook`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
