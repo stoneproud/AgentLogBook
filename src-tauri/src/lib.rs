@@ -401,6 +401,12 @@ fn run_tauri() {
             let menu = Menu::with_items(app, &[&actions_menu])?;
             app.set_menu(menu)?;
 
+            // Prewarm the local Podman volume scan (WSL copies can take ~10s)
+            // so the first stats/project request serves from the cache.
+            tauri::async_runtime::spawn(async {
+                commands::multi_provider::prewarm_local_podman_scan();
+            });
+
             Ok(())
         })
         .on_menu_event(|app, event| {

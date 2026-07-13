@@ -340,8 +340,9 @@ fn list_configured_podman_volume_names(_distro: &str, _volume_root: &str) -> Vec
 
 /// Cached result of a full local Podman volume scan. The scan can be very
 /// expensive on Windows (WSL invocations plus full volume copies), so callers
-/// share one scan for `LOCAL_PODMAN_SCAN_TTL` instead of re-copying volumes on
-/// every stats or project request.
+/// never wait for a rescan once a snapshot exists: stale entries are served
+/// immediately while a single background task refreshes the cache
+/// (stale-while-revalidate).
 struct LocalPodmanScanCacheEntry {
     scanned_at: std::time::Instant,
     projects: Vec<(LocalPodmanVolumeProvider, ClaudeProject)>,
@@ -351,7 +352,46 @@ static LOCAL_PODMAN_SCAN_CACHE: once_cell::sync::Lazy<
     tokio::sync::Mutex<Option<LocalPodmanScanCacheEntry>>,
 > = once_cell::sync::Lazy::new(|| tokio::sync::Mutex::new(None));
 
-const LOCAL_PODMAN_SCAN_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+/// Age after which a served snapshot triggers a background refresh.
+const LOCAL_PODMAN_SCAN_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+
+static LOCAL_PODMAN_REFRESH_IN_FLIGHT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Refresh the scan cache in the background, at most one refresh at a time.
+/// Must be called from within a tokio runtime context.
+fn spawn_local_podman_refresh() {
+    use std::sync::atomic::Ordering;
+
+    if LOCAL_PODMAN_REFRESH_IN_FLIGHT.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    tokio::spawn(async {
+        // Reset the in-flight flag even if the scan panics, so a failed
+        // refresh can be retried on the next stale read.
+        struct ResetOnDrop;
+        impl Drop for ResetOnDrop {
+            fn drop(&mut self) {
+                LOCAL_PODMAN_REFRESH_IN_FLIGHT.store(false, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        let _reset = ResetOnDrop;
+
+        let projects = scan_local_podman_projects_uncached().await;
+        let mut cache = LOCAL_PODMAN_SCAN_CACHE.lock().await;
+        *cache = Some(LocalPodmanScanCacheEntry {
+            scanned_at: std::time::Instant::now(),
+            projects,
+        });
+    });
+}
+
+/// Prewarm the local Podman scan cache. Called once at app startup so the
+/// first stats or project request does not block on WSL volume copies.
+pub(crate) fn prewarm_local_podman_scan() {
+    spawn_local_podman_refresh();
+}
 
 pub(crate) async fn scan_local_podman_projects(providers_to_scan: &[String]) -> Vec<ClaudeProject> {
     let wants_claude = providers_to_scan.iter().any(|p| p == "claude");
@@ -360,30 +400,34 @@ pub(crate) async fn scan_local_podman_projects(providers_to_scan: &[String]) -> 
         return Vec::new();
     }
 
-    // Holding the lock across the scan coalesces concurrent callers into one scan.
-    let mut cache = LOCAL_PODMAN_SCAN_CACHE.lock().await;
-    let is_fresh = cache
-        .as_ref()
-        .is_some_and(|entry| entry.scanned_at.elapsed() < LOCAL_PODMAN_SCAN_TTL);
-    if !is_fresh {
-        let projects = scan_local_podman_projects_uncached().await;
-        *cache = Some(LocalPodmanScanCacheEntry {
-            scanned_at: std::time::Instant::now(),
-            projects,
-        });
-    }
+    loop {
+        {
+            let cache = LOCAL_PODMAN_SCAN_CACHE.lock().await;
+            if let Some(entry) = cache.as_ref() {
+                if entry.scanned_at.elapsed() >= LOCAL_PODMAN_SCAN_TTL {
+                    // Stale snapshot: serve immediately, refresh in the
+                    // background so callers never block on WSL volume copies
+                    // once a snapshot exists.
+                    spawn_local_podman_refresh();
+                }
+                return entry
+                    .projects
+                    .iter()
+                    .filter(|(provider, _)| match provider {
+                        LocalPodmanVolumeProvider::Claude => wants_claude,
+                        LocalPodmanVolumeProvider::OpenCode => wants_opencode,
+                    })
+                    .map(|(_, project)| project.clone())
+                    .collect();
+            }
+        }
 
-    cache
-        .as_ref()
-        .map(|entry| entry.projects.as_slice())
-        .unwrap_or_default()
-        .iter()
-        .filter(|(provider, _)| match provider {
-            LocalPodmanVolumeProvider::Claude => wants_claude,
-            LocalPodmanVolumeProvider::OpenCode => wants_opencode,
-        })
-        .map(|(_, project)| project.clone())
-        .collect()
+        // No snapshot yet (first call after startup): all scans go through
+        // the single-flight background task so an inline scan can never race
+        // a prewarm refresh copying into the same cache directory.
+        spawn_local_podman_refresh();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
 }
 
 async fn scan_local_podman_projects_uncached() -> Vec<(LocalPodmanVolumeProvider, ClaudeProject)> {
