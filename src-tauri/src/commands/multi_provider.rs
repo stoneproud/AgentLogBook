@@ -338,6 +338,21 @@ fn list_configured_podman_volume_names(_distro: &str, _volume_root: &str) -> Vec
     Vec::new()
 }
 
+/// Cached result of a full local Podman volume scan. The scan can be very
+/// expensive on Windows (WSL invocations plus full volume copies), so callers
+/// share one scan for `LOCAL_PODMAN_SCAN_TTL` instead of re-copying volumes on
+/// every stats or project request.
+struct LocalPodmanScanCacheEntry {
+    scanned_at: std::time::Instant,
+    projects: Vec<(LocalPodmanVolumeProvider, ClaudeProject)>,
+}
+
+static LOCAL_PODMAN_SCAN_CACHE: once_cell::sync::Lazy<
+    tokio::sync::Mutex<Option<LocalPodmanScanCacheEntry>>,
+> = once_cell::sync::Lazy::new(|| tokio::sync::Mutex::new(None));
+
+const LOCAL_PODMAN_SCAN_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
 pub(crate) async fn scan_local_podman_projects(providers_to_scan: &[String]) -> Vec<ClaudeProject> {
     let wants_claude = providers_to_scan.iter().any(|p| p == "claude");
     let wants_opencode = providers_to_scan.iter().any(|p| p == "opencode");
@@ -345,6 +360,33 @@ pub(crate) async fn scan_local_podman_projects(providers_to_scan: &[String]) -> 
         return Vec::new();
     }
 
+    // Holding the lock across the scan coalesces concurrent callers into one scan.
+    let mut cache = LOCAL_PODMAN_SCAN_CACHE.lock().await;
+    let is_fresh = cache
+        .as_ref()
+        .is_some_and(|entry| entry.scanned_at.elapsed() < LOCAL_PODMAN_SCAN_TTL);
+    if !is_fresh {
+        let projects = scan_local_podman_projects_uncached().await;
+        *cache = Some(LocalPodmanScanCacheEntry {
+            scanned_at: std::time::Instant::now(),
+            projects,
+        });
+    }
+
+    cache
+        .as_ref()
+        .map(|entry| entry.projects.as_slice())
+        .unwrap_or_default()
+        .iter()
+        .filter(|(provider, _)| match provider {
+            LocalPodmanVolumeProvider::Claude => wants_claude,
+            LocalPodmanVolumeProvider::OpenCode => wants_opencode,
+        })
+        .map(|(_, project)| project.clone())
+        .collect()
+}
+
+async fn scan_local_podman_projects_uncached() -> Vec<(LocalPodmanVolumeProvider, ClaudeProject)> {
     let mut projects = Vec::new();
     for source_config in local_podman_sources() {
         let distro_name = source_config.distro;
@@ -410,11 +452,6 @@ pub(crate) async fn scan_local_podman_projects(providers_to_scan: &[String]) -> 
             else {
                 continue;
             };
-            if (provider == LocalPodmanVolumeProvider::Claude && !wants_claude)
-                || (provider == LocalPodmanVolumeProvider::OpenCode && !wants_opencode)
-            {
-                continue;
-            }
 
             let data_path_str = data_path.to_string_lossy().to_string();
             let label = format!("Podman: {workload_name} @ local");
@@ -436,7 +473,7 @@ pub(crate) async fn scan_local_podman_projects(providers_to_scan: &[String]) -> 
                                 project.custom_directory_label = Some(label.clone());
                                 project.source = Some(source.clone());
                             }
-                            projects.extend(scanned);
+                            projects.extend(scanned.into_iter().map(|project| (provider, project)));
                         }
                         Err(e) => {
                             log::warn!("Local Podman Claude scan failed for {workload_name}: {e}");
@@ -454,7 +491,7 @@ pub(crate) async fn scan_local_podman_projects(providers_to_scan: &[String]) -> 
                                 project.custom_directory_label = Some(label.clone());
                                 project.source = Some(source.clone());
                             }
-                            projects.extend(scanned);
+                            projects.extend(scanned.into_iter().map(|project| (provider, project)));
                         }
                         Err(e) => {
                             log::warn!(

@@ -105,6 +105,62 @@ fn validate_session_path(session_path: &Path, raw_session_path: &str) -> Result<
     Ok(canonical_session)
 }
 
+/// Maximum prefix of a rollout file scanned when probing for `session_meta`.
+/// The meta line is written first and is small; 256 KiB is generous headroom.
+const SESSION_META_PROBE_BYTES: usize = 256 * 1024;
+
+/// Read just enough of a rollout file to find the `session_meta` cwd.
+/// Unlike `extract_session_info`, this never parses the whole file.
+#[allow(unsafe_code)] // Required for mmap performance optimization
+fn extract_session_cwd(rollout_path: &Path) -> Option<String> {
+    let file = File::open(rollout_path).ok()?;
+    // SAFETY: File is read-only and we only read from the mapping
+    let mmap = unsafe { Mmap::map(&file) }.ok()?;
+    let prefix = &mmap[..mmap.len().min(SESSION_META_PROBE_BYTES)];
+
+    for (start, end) in find_line_ranges(prefix).into_iter().take(5) {
+        let mut buf = prefix[start..end].to_vec();
+        let Ok(val) = simd_json::from_slice::<Value>(&mut buf) else {
+            continue;
+        };
+        if val.get("type").and_then(|t| t.as_str()) == Some("session_meta") {
+            return val
+                .get("payload")
+                .and_then(|payload| payload.get("cwd"))
+                .and_then(|cwd| cwd.as_str())
+                .map(String::from);
+        }
+    }
+    None
+}
+
+/// Enumerate every rollout session file with its session cwd, probing only
+/// the leading `session_meta` line of each file. Used by global stats so the
+/// per-file cost is O(1) instead of a full parse per project.
+pub fn list_rollout_files_with_cwd() -> Vec<(Option<String>, PathBuf)> {
+    let Ok(session_dirs) = get_existing_session_dirs() else {
+        return Vec::new();
+    };
+
+    let mut files: Vec<PathBuf> = Vec::new();
+    for session_dir in session_dirs {
+        for entry in WalkDir::new(session_dir)
+            .min_depth(1)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_file())
+            .filter(|e| is_rollout_jsonl(e.path()))
+        {
+            files.push(entry.path().to_path_buf());
+        }
+    }
+
+    files
+        .into_iter()
+        .map(|path| (extract_session_cwd(&path), path))
+        .collect()
+}
+
 /// Session metadata extracted from rollout files
 struct SessionInfo {
     session_id: String,
