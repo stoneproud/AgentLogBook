@@ -33,11 +33,19 @@ interface ModelPricing {
 
 const MODEL_PRICING: Record<string, ModelPricing> = {
   // Claude models
+  // Substring lookup is longest-key-first, so version-specific keys must be
+  // present or a new model falls through to a shorter legacy key (e.g.
+  // claude-opus-4-8 matching claude-opus-4's legacy $15/$75).
   'claude-fable-5': { input: 10, output: 50, cacheWrite: 12.50, cacheRead: 1.00 },
+  'claude-mythos': { input: 10, output: 50, cacheWrite: 12.50, cacheRead: 1.00 },
+  'claude-opus-4-8': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
   'claude-opus-4-7': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
   'claude-opus-4-6': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
   'claude-opus-4-5': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
+  // Legacy Opus 4 / 4.1 (claude-opus-4-1 also matches this prefix)
   'claude-opus-4': { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.50 },
+  // Sticker price; intro pricing $2/$10 applies through 2026-08-31
+  'claude-sonnet-5': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
   'claude-sonnet-4-6': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
   'claude-sonnet-4-5': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
   'claude-sonnet-4': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
