@@ -1,6 +1,6 @@
 use crate::models::{ClaudeMessage, ClaudeProject, ClaudeSession, ProjectSource};
 use crate::providers;
-use crate::utils::parse_rfc3339_utc;
+use crate::utils::{no_window_command, parse_rfc3339_utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -260,8 +260,39 @@ fn shell_quote(value: &str) -> String {
 }
 
 #[cfg(target_os = "windows")]
+fn configured_podman_copy_script(volume_root: &str, dest: &str) -> String {
+    let quoted_root = shell_quote(volume_root);
+    let quoted_dest = shell_quote(dest);
+    format!(
+        "root={quoted_root}; dest={quoted_dest}; mkdir -p \"$dest\" || exit 1; \
+         for source in \"$root\"/*; do \
+           [ -d \"$source/_data\" ] || continue; \
+           name=${{source##*/}}; \
+           case \"$name\" in ''|*[!A-Za-z0-9._-]*) continue ;; esac; \
+           data=\"$source/_data\"; target=\"$dest/$name\"; recognized=0; \
+           if ls \"$data\"/opencode.db* >/dev/null 2>&1; then \
+             mkdir -p \"$target\" || continue; \
+             cp -au \"$data\"/opencode.db* \"$target\"/ || continue; \
+             recognized=1; \
+           fi; \
+           if [ -d \"$data/storage\" ]; then \
+             mkdir -p \"$target/storage\" || continue; \
+             cp -au \"$data/storage/.\" \"$target/storage/\" || continue; \
+             recognized=1; \
+           fi; \
+           if [ -d \"$data/projects\" ]; then \
+             mkdir -p \"$target/projects\" || continue; \
+             cp -au \"$data/projects/.\" \"$target/projects/\" || continue; \
+             recognized=1; \
+           fi; \
+           [ \"$recognized\" -eq 1 ] && printf '%s\\n' \"$name\"; \
+         done; exit 0"
+    )
+}
+
+#[cfg(target_os = "windows")]
 fn run_wsl_root_sh(distro: &str, script: &str) -> Option<String> {
-    let output = std::process::Command::new("wsl")
+    let output = no_window_command("wsl")
         .args(["-d", distro, "-u", "root", "--", "sh", "-c", script])
         .output()
         .ok()?;
@@ -272,69 +303,53 @@ fn run_wsl_root_sh(distro: &str, script: &str) -> Option<String> {
 }
 
 #[cfg(target_os = "windows")]
-fn copy_configured_podman_volume_to_cache(
+fn copy_configured_podman_volumes_to_cache(
     distro: &str,
     volume_root: &str,
-    volume_name: &str,
-) -> Option<PathBuf> {
-    if !is_safe_local_podman_distro(distro)
-        || !is_safe_local_podman_volume_root(volume_root)
-        || !is_safe_local_podman_volume_name(volume_name)
-    {
-        return None;
-    }
-
-    let cache_root = dirs::home_dir()?
-        .join(".claude-history-viewer")
-        .join("local-podman-cache-v2")
-        .join(safe_cache_component(distro))
-        .join(safe_cache_component(volume_name));
-    if cache_root.exists() && std::fs::remove_dir_all(&cache_root).is_err() {
-        return None;
-    }
-    std::fs::create_dir_all(&cache_root).ok()?;
-    let dest = windows_path_to_wsl_path(&cache_root)?;
-    let source = format!("{volume_root}/{volume_name}/_data");
-    let quoted_source = shell_quote(&source);
-    let quoted_dest = shell_quote(&dest);
-    let script = format!(
-        "set -e; mkdir -p {quoted_dest}; \
-         if ls {quoted_source}/opencode.db* >/dev/null 2>&1; then cp -a {quoted_source}/opencode.db* {quoted_dest}/; fi; \
-         if [ -d {quoted_source}/storage ]; then cp -a {quoted_source}/storage {quoted_dest}/; fi; \
-         if [ -d {quoted_source}/projects ]; then cp -a {quoted_source}/projects {quoted_dest}/; fi"
-    );
-    run_wsl_root_sh(distro, &script)?;
-    Some(cache_root)
-}
-
-#[cfg(target_os = "windows")]
-fn list_configured_podman_volume_names(distro: &str, volume_root: &str) -> Vec<String> {
+) -> Vec<(String, PathBuf)> {
     if !is_safe_local_podman_distro(distro) || !is_safe_local_podman_volume_root(volume_root) {
         return Vec::new();
     }
-    let script = format!(
-        "find {} -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null",
-        shell_quote(volume_root)
-    );
+
+    let Some(cache_root) = dirs::home_dir().map(|home| {
+        home.join(".claude-history-viewer")
+            .join("local-podman-cache-v2")
+            .join(safe_cache_component(distro))
+    }) else {
+        return Vec::new();
+    };
+    if std::fs::create_dir_all(&cache_root).is_err() {
+        return Vec::new();
+    }
+    let Some(dest) = windows_path_to_wsl_path(&cache_root) else {
+        return Vec::new();
+    };
+
+    // One WSL process handles the whole storage root. The previous
+    // implementation launched one `wsl.exe` per volume (including unrelated
+    // tailscale/runtime/auth volumes), which produced a minute-long console
+    // window storm on Windows. Filter by actual history payload before copying
+    // and update the append-oriented cache in place.
+    let script = configured_podman_copy_script(volume_root, &dest);
     run_wsl_root_sh(distro, &script)
         .unwrap_or_default()
         .lines()
-        .filter_map(|path| path.trim().rsplit('/').next().map(str::to_string))
+        .map(str::trim)
         .filter(|name| is_safe_local_podman_volume_name(name))
+        .map(|name| {
+            (
+                name.to_string(),
+                cache_root.join(safe_cache_component(name)),
+            )
+        })
         .collect()
 }
 
 #[cfg(not(target_os = "windows"))]
-fn copy_configured_podman_volume_to_cache(
+fn copy_configured_podman_volumes_to_cache(
     _distro: &str,
     _volume_root: &str,
-    _volume_name: &str,
-) -> Option<PathBuf> {
-    None
-}
-
-#[cfg(not(target_os = "windows"))]
-fn list_configured_podman_volume_names(_distro: &str, _volume_root: &str) -> Vec<String> {
+) -> Vec<(String, PathBuf)> {
     Vec::new()
 }
 
@@ -439,17 +454,8 @@ async fn scan_local_podman_projects_uncached() -> Vec<(LocalPodmanVolumeProvider
         let mut copied_volume_paths = Vec::new();
 
         let mut copy_configured_volumes = || {
-            for volume_name in
-                list_configured_podman_volume_names(&distro_name, &source_config.volume_root)
-            {
-                if let Some(cache_path) = copy_configured_podman_volume_to_cache(
-                    &distro_name,
-                    &source_config.volume_root,
-                    &volume_name,
-                ) {
-                    copied_volume_paths.push((volume_name, cache_path));
-                }
-            }
+            copied_volume_paths =
+                copy_configured_podman_volumes_to_cache(&distro_name, &source_config.volume_root);
         };
 
         if volume_root_unc.is_none() && source_config.allow_wsl_copy {
@@ -1361,6 +1367,20 @@ mod tests {
             ))
         );
         assert_eq!(local_podman_volume_provider("postgres-data"), None);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn configured_podman_copy_is_batched_filtered_and_incremental() {
+        let script =
+            configured_podman_copy_script("/var/lib/containers/storage/volumes", "/mnt/c/cache");
+
+        assert_eq!(script.matches("for source in").count(), 1);
+        assert!(script.contains("[ -d \"$source/_data\" ] || continue"));
+        assert!(script.contains("*[!A-Za-z0-9._-]*"));
+        assert!(script.contains("[ -d \"$data/projects\" ]"));
+        assert!(script.contains("cp -au"));
+        assert!(script.ends_with("done; exit 0"));
     }
 
     #[test]

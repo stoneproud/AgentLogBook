@@ -1,11 +1,11 @@
 use crate::models::{ClaudeProject, GitCommit};
 use crate::utils::{
     detect_git_worktree_info, estimate_message_count_from_size, extract_project_name,
+    no_window_command,
 };
 use chrono::{DateTime, Utc};
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
 use walkdir::WalkDir;
 
 #[tauri::command]
@@ -24,7 +24,7 @@ pub async fn get_git_log(actual_path: String, limit: usize) -> Result<Vec<GitCom
         .canonicalize()
         .map_err(|e| format!("Invalid path: {e}"))?;
 
-    let output = Command::new("git")
+    let output = no_window_command("git")
         .args(["log", "-n"])
         .arg(limit.to_string())
         .args(["--pretty=format:%H|%an|%at|%s"])
@@ -650,29 +650,29 @@ mod tests {
         let path_str = temp_dir.path().to_string_lossy().to_string();
 
         // Initialize git repo
-        let _ = Command::new("git")
+        let _ = no_window_command("git")
             .arg("init")
             .current_dir(&temp_dir)
             .output()
             .expect("Failed to init git");
 
         // Configure user for commit
-        let _ = Command::new("git")
+        let _ = no_window_command("git")
             .args(["config", "user.email", "test@example.com"])
             .current_dir(&temp_dir)
             .output();
-        let _ = Command::new("git")
+        let _ = no_window_command("git")
             .args(["config", "user.name", "Test User"])
             .current_dir(&temp_dir)
             .output();
 
         // Create a file and commit it
         create_test_jsonl_file(&temp_dir.path().to_path_buf(), "test.txt", "content");
-        let _ = Command::new("git")
+        let _ = no_window_command("git")
             .args(["add", "."])
             .current_dir(&temp_dir)
             .output();
-        let _ = Command::new("git")
+        let _ = no_window_command("git")
             .args(["commit", "-m", "Initial commit"])
             .current_dir(&temp_dir)
             .output();

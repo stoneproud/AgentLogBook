@@ -88,8 +88,6 @@ pub fn detect_distros() -> Vec<WslDistro> {
 
 #[cfg(target_os = "windows")]
 pub fn resolve_home_path(distro: &str) -> Result<PathBuf, String> {
-    use std::process::Command;
-
     if !distro
         .chars()
         .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
@@ -97,7 +95,7 @@ pub fn resolve_home_path(distro: &str) -> Result<PathBuf, String> {
         return Err(format!("Invalid distro name: {distro}"));
     }
 
-    let output = Command::new("wsl")
+    let output = crate::utils::no_window_command("wsl")
         .args(["-d", distro, "-e", "sh", "-c", "echo $HOME"])
         .output()
         .map_err(|e| format!("Failed to run wsl command: {e}"))?;
@@ -146,9 +144,10 @@ fn decode_utf16le(bytes: &[u8]) -> Result<String, String> {
 
 #[cfg(target_os = "windows")]
 fn detect_distros_from_command() -> Vec<WslDistro> {
-    use std::process::Command;
-
-    let Ok(output) = Command::new("wsl").args(["-l", "-q"]).output() else {
+    let Ok(output) = crate::utils::no_window_command("wsl")
+        .args(["-l", "-q"])
+        .output()
+    else {
         return Vec::new();
     };
     if !output.status.success() {

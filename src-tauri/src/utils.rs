@@ -5,6 +5,23 @@ use serde_json::Value;
 use std::fs;
 use std::path::{Component, Path};
 
+/// Build a child process that cannot create a console window on Windows.
+///
+/// The desktop app and headless HTTP server both launch console programs such
+/// as `wsl.exe` and `git.exe`. Without `CREATE_NO_WINDOW`, every background
+/// refresh can steal focus and flash a console window even though stdout and
+/// stderr are captured.
+pub fn no_window_command(program: &str) -> std::process::Command {
+    let mut command = std::process::Command::new(program);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
 /// Estimated average bytes per JSONL line (used for capacity pre-allocation)
 /// Based on typical Claude message sizes (800-1200 bytes average)
 const ESTIMATED_BYTES_PER_LINE: usize = 500;
@@ -496,6 +513,24 @@ pub fn find_subagent_files(session_file_path: &Path) -> Vec<std::path::PathBuf> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_console_launch_sites_require_no_window_creation() {
+        let launch_sources = [
+            include_str!("wsl.rs"),
+            include_str!("commands/multi_provider.rs"),
+            include_str!("commands/project.rs"),
+        ];
+        for source in launch_sources {
+            assert!(!source.contains("Command::new(\"wsl\")"));
+            assert!(!source.contains("Command::new(\"git\")"));
+        }
+
+        let updater = include_str!("commands/update.rs");
+        assert!(updater.contains("CREATE_NO_WINDOW"));
+        assert!(updater.contains("DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW"));
+    }
 
     // ===== Line Utils Tests =====
 

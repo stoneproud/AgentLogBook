@@ -9,6 +9,8 @@ use std::os::windows::process::CommandExt;
 const DETACHED_PROCESS: u32 = 0x0000_0008;
 #[cfg(target_os = "windows")]
 const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Force-quits the current app process and spawns a detached helper that
 /// re-launches the app after the current process exits.
@@ -66,7 +68,7 @@ pub fn force_quit_and_relaunch(app: AppHandle) -> Result<(), String> {
         log::info!("[updater] spawning Windows relaunch helper");
         std::process::Command::new("powershell")
             .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps_cmd])
-            .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+            .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
