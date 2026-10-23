@@ -15,7 +15,7 @@ import { TruncatedScrollText } from "../../ui/TruncatedScrollText";
 function getSourceRows(label: string, t: (key: string, fallback: string) => string): string[] {
   const podmanMatch = label.match(/^Podman:\s*(.+?)\s*@\s*(.+)$/);
   if (podmanMatch) {
-    return [`${t("project.source.podman", "Podman")}: ${podmanMatch[1]}`, podmanMatch[2]];
+    return [`${t("project.source.podman", "Podman")}: ${podmanMatch[1]}`, podmanMatch[2] ?? ""];
   }
   const wslMatch = label.match(/^WSL:\s*(.+)$/);
   if (wslMatch) {
